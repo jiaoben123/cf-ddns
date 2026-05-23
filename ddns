@@ -14,7 +14,7 @@ Tip="${YELLOW}[提示]${NC}"
 cop_info(){
 clear
 echo -e "${GREEN}######################################
-#      ${RED} DDNS 一键脚本 v2.7 (完美终极版)${GREEN}#
+#      ${RED} DDNS 一键脚本 v2.8 (带TG测试版)${GREEN}#
 #             作者: 末晨 / 优化      ${GREEN}#
 #       ${GREEN}https://blog.mochen.one      ${GREEN}#
 ######################################${NC}"
@@ -129,8 +129,17 @@ if [ "$ipv6_set" = "true" ]; then
     fi
 fi
 
-if [[ -n "$Telegram_Bot_Token" && -n "$Telegram_Chat_ID" && (("$Public_IPv4" != "$Old_Public_IPv4" && -n "$Public_IPv4") || ("$Public_IPv6" != "$Old_Public_IPv6" && -n "$Public_IPv6")) ]]; then
-    send_telegram_notification
+if [[ -n "$Telegram_Bot_Token" && -n "$Telegram_Chat_ID" && (("$Public_IPv4" != "$Old_Public_IPv4" && -n "$Public_IPv4") || ("$Public_IPv6" != "$Old_Public_IPv6" && -n "$Public_IPv6") || "$1" == "force") ]]; then
+    local message=""
+    for domain in "${Domains[@]}"; do message+="$domain "; done
+    message+="IPv4更新 $Old_Public_IPv4 🔜 $Public_IPv4 。"
+    if [ "$ipv6_set" == "true" ]; then
+        if [ "${Domains[*]}" != "${Domainsv6[*]}" ]; then
+            for domainv6 in "${Domainsv6[@]}"; do message+="$domainv6 "; done
+        fi
+        message+="IPv6更新 $Old_Public_IPv6 🔜 $Public_IPv6 。"
+    fi
+    curl -s -X POST "https://api.telegram.org/bot$Telegram_Bot_Token/sendMessage" -d "chat_id=$Telegram_Chat_ID" -d "text=$message" > /dev/null
     write_log "已触发 Telegram 通知"
 fi
 
@@ -185,25 +194,11 @@ else
         if [[ -n "$ipv6" && "$ipv6" =~ $ipv6Regex ]]; then Public_IPv6="$ipv6"; fi
     fi
 fi
-
-send_telegram_notification() {
-    local message=""
-    for domain in "${Domains[@]}"; do message+="$domain "; done
-    message+="IPv4更新 $Old_Public_IPv4 🔜 $Public_IPv4 。"
-    if [ "$ipv6_set" == "true" ]; then
-        if [ "${Domains[*]}" != "${Domainsv6[*]}" ]; then
-            for domainv6 in "${Domainsv6[@]}"; do message+="$domainv6 "; done
-        fi
-        message+="IPv6更新 $Old_Public_IPv6 🔜 $Public_IPv6 。"
-    fi
-    curl -s -X POST "https://api.telegram.org/bot$Telegram_Bot_Token/sendMessage" -d "chat_id=$Telegram_Chat_ID" -d "text=$message"
-}
 EOF
     chmod +x /etc/DDNS/.config
 }
 
 install_ddns(){
-    # 强制覆盖快捷命令，从你自己的 GitHub 拉取最新版
     curl -s -o /usr/bin/ddns https://raw.githubusercontent.com/jiaoben123/cf-ddns/main/ddns && chmod +x /usr/bin/ddns
     mkdir -p /etc/DDNS
     install_ddns_config
@@ -384,6 +379,19 @@ set_telegram_settings(){
         if [ -n "$Chat_ID" ]; then
             sed -i 's/^#\?Telegram_Bot_Token=".*"/Telegram_Bot_Token="'"${Token}"'"/g' /etc/DDNS/.config
             sed -i 's/^#\?Telegram_Chat_ID=".*"/Telegram_Chat_ID="'"${Chat_ID}"'"/g' /etc/DDNS/.config
+            
+            echo -e "${Info}Telegram 配置已保存！"
+            echo -e "${Info}正在发送测试消息到您的 Telegram，请稍候..."
+            test_msg="🤖 DDNS 脚本通知配置成功！您的服务器可以正常发送消息了。"
+            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" -X POST "https://api.telegram.org/bot$Token/sendMessage" -d "chat_id=$Chat_ID" -d "text=$test_msg")
+            
+            if [ "$HTTP_STATUS" == "200" ]; then
+                echo -e "${Info}✅ 测试消息发送成功！请查看您的 Telegram。"
+            else
+                echo -e "${Error}❌ 测试消息发送失败！HTTP状态码: $HTTP_STATUS"
+                echo -e "${Tip}提示：请检查您的 Bot Token 和 Chat ID 是否正确填写。"
+            fi
+            sleep 3
         fi
     fi
 }
@@ -456,17 +464,14 @@ check_ddns_install(){
         run_ddns
     else
         if ! grep -q "write_log" /etc/DDNS/DDNS 2>/dev/null; then
-            echo -e "${Tip}检测到您的系统底层仍然是旧版代码..."
-            echo -e "${Info}正在自动平滑升级为 v2.7 核心，您的所有配置将原样保留！"
+            echo -e "${Info}正在自动平滑升级为 v2.8 核心，您的所有配置将原样保留！"
             install_ddns_core
             sleep 1
         fi
         
         # 强制替换掉系统的快捷命令，指向你的 GitHub 仓库
-        if ! grep -q "完美终极版" /usr/bin/ddns 2>/dev/null; then
-            echo -e "${Info}正在修复 'ddns' 快捷命令..."
+        if ! grep -q "带TG测试版" /usr/bin/ddns 2>/dev/null; then
             curl -s -o /usr/bin/ddns https://raw.githubusercontent.com/jiaoben123/cf-ddns/main/ddns && chmod +x /usr/bin/ddns
-            sleep 1
         fi
         
         cop_info
